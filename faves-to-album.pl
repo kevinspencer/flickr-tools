@@ -20,24 +20,23 @@ use Flickr::API2;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 $Data::Dumper::Indent = 1;
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
 my ($api_key, $api_secret) = retrieve_key_info();
 
 my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
- 
-my @photos = $flickr->people->findByUsername('kevinspencer')->getPublicPhotos(per_page => 10);
- 
-for my $photo (@photos) {
-    print $photo->title() . ' : ' . $photo->count_faves(), "\n";
-}
+my $user   = $flickr->people->findByUsername('kevinspencer')->getInfo();
+
+# to find the total number of photos, we need to know the initial epoch of the first upload...
+# FIXME: this should all be handled in Flickr::API2::People...
+my $epoch_first_photo = $user->{photos}{firstdate}{_content}; # <== #FIXME, um, method calls much?
+print $epoch_first_photo, "\n";
 
 sub retrieve_key_info {
     if (-e $api_key_file) {
-        open(my $fh, '<', $api_key_file) ||
-            die "Could not read $api_key_file - $!\n";
+        open(my $fh, '<', $api_key_file) || die "Could not read $api_key_file - $!\n";
         my $api_key = <$fh>;
         chomp($api_key);
         my $api_secret = <$fh>;
