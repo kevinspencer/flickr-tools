@@ -17,22 +17,33 @@ use Data::Dumper;
 use File::HomeDir;
 use File::Spec;
 use Flickr::API2;
+use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 $Data::Dumper::Indent = 1;
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
 my ($api_key, $api_secret) = retrieve_key_info();
 
 my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
-my $user   = $flickr->people->findByUsername('kevinspencer')->getInfo();
 
-# to find the total number of photos, we need to know the initial epoch of the first upload...
-# FIXME: this should all be handled in Flickr::API2::People...
-my $epoch_first_photo = $user->{photos}{firstdate}{_content}; # <== #FIXME, um, method calls much?
-print $epoch_first_photo, "\n";
+my $user   = $flickr->people->findByUsername('kevinspencer');
+my $info   = $user->getInfo();
+
+my $total_photos = $info->{photos}{count}{_content};
+
+# flickr.people.getPublicPhotos can handle 500 photos per 'page' request...
+my $photos_per_page = $total_photos >= 500 ? 500 : $total_photos;
+my $pages_needed    = ceil($total_photos / $photos_per_page);
+my $current_counter = $photos_per_page;
+for my $current_page_count (1..$pages_needed) {
+    my @photos = $user->getPublicPhotos(per_page => $photos_per_page, page => $current_page_count);
+    my $count = @photos;
+    print "$current_page_count => $current_counter => got $count photos back from the Flickrs\n";
+    $current_counter += $photos_per_page;
+}
 
 sub retrieve_key_info {
     if (-e $api_key_file) {
