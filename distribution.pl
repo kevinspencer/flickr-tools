@@ -11,6 +11,8 @@
 #
 ################################################################################
 
+# experimental, Flickr::API2 from the CPAN doesn't support views yet
+use lib '/Users/kevin/code/Flickr-API2/lib';
 use Data::Dumper;
 use File::HomeDir;
 use File::Spec;
@@ -20,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 $Data::Dumper::Indent = 1;
 
 my $type;
@@ -29,6 +31,8 @@ if (! $type) {
     print "No option passed in, defaulting to faves...\n";
     $type = 'faves';
 }
+
+my %type_map = (faves => 'count_faves', views => 'views');
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
 my ($api_key, $api_secret) = retrieve_key_info();
@@ -54,7 +58,7 @@ for my $current_page_count (1..$pages_needed) {
     my @photos = $user->getPublicPhotos(per_page => $photos_per_page, page => $current_page_count);
     $total_photos_processed += @photos;
     for my $photo (@photos) {
-        $distribution{$photo->{count_faves}}++;
+        $distribution{$photo->{$type_map{$type}}}++;
     }
     print "Completed page $current_page_count, $total_photos_processed photos processed...\n";
 }
