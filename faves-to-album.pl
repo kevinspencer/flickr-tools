@@ -11,6 +11,8 @@
 #
 ################################################################################
 
+# experimental, Flickr::API2 on the CPAN doesn't have native support for sets
+use lib '/Users/kevin/code/Flickr-API2/lib';
 use Data::Dumper;
 use File::HomeDir;
 use File::Spec;
@@ -20,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 $Data::Dumper::Indent = 1;
 
 my $favorite_count_threshold;
@@ -38,6 +40,10 @@ my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
 main();
 
 sub main {
+    my $user = $flickr->people->findByUsername('kevinspencer');
+    my $url = $user->getAuthURL();
+    print $url, "\n";
+    exit();
     my $photos_to_move = get_photos_above_threshold();
 
     if (! $photos_to_move) {
@@ -49,7 +55,33 @@ sub main {
     my $photo_word = $count == 1 ? 'photo' : 'photos';
     print "Found $count $photo_word above threshold of $favorite_count_threshold\n";
 
-    # TODO: check to see if we already have an album on Flickr called "$favorite_count_threshold or more" 
+    # check to see if we already have an album on Flickr called "$favorite_count_threshold or more" 
+    # and create it if we don't.  we need to pass in a primary_photo_id if creating...
+    my @photo_id_keys   = keys(%$photos_to_move);
+    my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
+    my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
+}
+
+sub find_or_create_set {
+    my ($count, $photo_id) = @_;
+
+    my $user = $flickr->people->findByUsername('kevinspencer');
+    my @sets = $user->photosetGetList();
+
+    my $set_id;
+    for my $set (@sets) {
+        if ($set->{title} eq "$count faves or more") {
+            $set_id = $set->{id};
+            last;
+        }
+    }
+    return $set_id if $set_id;
+
+    # TODO: need to add auth logic otherwise this will fail due to no write permission...
+    
+    # no set found so we'll create it...
+    my $id = $user->photosetCreate(primary_photo_id => $photo_id);
+    return $id;
 }
 
 sub get_photos_above_threshold {
