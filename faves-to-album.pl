@@ -33,17 +33,13 @@ if (! $favorite_count_threshold) {
 }
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
-my ($api_key, $api_secret) = retrieve_key_info();
+my ($api_key, $api_secret, $auth_token) = retrieve_key_info();
 
 my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
 
 main();
 
 sub main {
-    my $user = $flickr->people->findByUsername('kevinspencer');
-    my $url = $user->getAuthURL();
-    print $url, "\n";
-    exit();
     my $photos_to_move = get_photos_above_threshold();
 
     if (! $photos_to_move) {
@@ -115,6 +111,8 @@ sub retrieve_key_info {
         chomp($api_key);
         my $api_secret = <$fh>;
         chomp($api_secret);
+        my $auth_token = <$fh>;
+        chomp($auth_token);
         close($fh);
         return ($api_key, $api_secret);
     }
