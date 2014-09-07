@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 $Data::Dumper::Indent = 1;
 
 my $favorite_count_threshold;
@@ -35,7 +35,7 @@ if (! $favorite_count_threshold) {
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
 my ($api_key, $api_secret, $auth_token) = retrieve_key_info();
 
-my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
+my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret, token => $auth_token});
 
 main();
 
@@ -64,19 +64,18 @@ sub find_or_create_set {
     my $user = $flickr->people->findByUsername('kevinspencer');
     my @sets = $user->photosetGetList();
 
+    my $set_title = "$count faves or more";
     my $set_id;
     for my $set (@sets) {
-        if ($set->{title} eq "$count faves or more") {
+        if ($set->{title} eq $set_title) {
             $set_id = $set->{id};
             last;
         }
     }
     return $set_id if $set_id;
 
-    # TODO: need to add auth logic otherwise this will fail due to no write permission...
-    
     # no set found so we'll create it...
-    my $id = $user->photosetCreate(primary_photo_id => $photo_id);
+    my $id = $user->photosetCreate(primary_photo_id => $photo_id, title => $set_title);
     return $id;
 }
 
@@ -114,7 +113,7 @@ sub retrieve_key_info {
         my $auth_token = <$fh>;
         chomp($auth_token);
         close($fh);
-        return ($api_key, $api_secret);
+        return ($api_key, $api_secret, $auth_token);
     }
     return;
 }
