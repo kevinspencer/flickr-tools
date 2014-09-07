@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 $Data::Dumper::Indent = 1;
 
 my $favorite_count_threshold;
@@ -110,9 +110,12 @@ sub add_photos_to_album {
 
     my $user =$flickr->people->findByUsername('kevinspencer');
 
-    # TODO: don't add photos that are already in the set...
     for my $photo_id (keys(%$photos)) {
-        $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
+        print "Adding $photos->{$photo_id}{title} to album...\n";
+        eval {
+            $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
+        };
+        die $@ if (($@) && ($@ !~ /Photo already in set/));
     }
 }
 
