@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 $Data::Dumper::Indent = 1;
 
 my $favorite_count_threshold;
@@ -56,6 +56,8 @@ sub main {
     my @photo_id_keys   = keys(%$photos_to_move);
     my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
     my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
+    add_photos_to_album($photos_to_move, $set_id);
+
 }
 
 sub find_or_create_set {
@@ -101,6 +103,17 @@ sub get_photos_above_threshold {
         }
     }
     return %photos_to_move ? \%photos_to_move : undef;
+}
+
+sub add_photos_to_album {
+    my ($photos, $set_id) = @_;
+
+    my $user =$flickr->people->findByUsername('kevinspencer');
+
+    # TODO: don't add photos that are already in the set...
+    for my $photo_id (keys(%$photos)) {
+        $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
+    }
 }
 
 sub retrieve_key_info {
