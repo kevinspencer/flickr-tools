@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2014 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2015 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -57,7 +57,8 @@ sub main {
     my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
     my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
     add_photos_to_album($photos_to_move, $set_id);
-
+    # TODO: also need to remove those pics that are now below threshold...
+    remove_photos_from_album($set_id);
 }
 
 sub find_or_create_set {
@@ -120,6 +121,9 @@ sub add_photos_to_album {
         }
         print "Added $photos->{$photo_id}{title}...\n";
     }
+}
+
+sub remove_photos_from_album {
 }
 
 sub retrieve_key_info {
