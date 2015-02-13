@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2015 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2014-2015 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -56,8 +56,10 @@ sub main {
     my @photo_id_keys   = keys(%$photos_to_move);
     my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
     my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
-    add_photos_to_album($photos_to_move, $set_id);
-    # TODO: also need to remove those pics that are now below threshold...
+    my $add_count = add_photos_to_album($photos_to_move, $set_id);
+    $photo_word = $add_count == 1 ? 'photo' : 'photos';
+    print "Added $add_count $photo_word photos on this run\n";
+    print "Cleaning up...\n";
     remove_photos_from_album($set_id);
 }
 
@@ -111,6 +113,7 @@ sub add_photos_to_album {
 
     my $user =$flickr->people->findByUsername('kevinspencer');
 
+    my $count = 0;
     for my $photo_id (keys(%$photos)) {
         eval {
             $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
@@ -119,11 +122,40 @@ sub add_photos_to_album {
             die $@ if ($@ !~ /Photo already in set/);
             next;
         }
+        $count++;
         print "Added $photos->{$photo_id}{title}...\n";
     }
+    
+    return $count;
 }
 
 sub remove_photos_from_album {
+    my $set_id = shift;
+
+    my @photos_to_remove = get_photos_below_threshold($set_id);
+    print Dumper \@photos_to_remove;
+
+}
+
+sub get_photos_below_threshold {
+    my $set_id = shift;
+
+    my $user = $flickr->people->findByUsername('kevinspencer');
+
+    my @photos = $user->photosetGetPhotos($set_id);
+    my $count  = @photos ? @photos : 0;
+    my $plural_word = $count == 1 ? 'photo' : 'photos';
+
+    print "Found $count $plural_word already in set, checking for under threshold of $favorite_count_threshold...\n";
+
+    my @remove_us;
+    for my $photo (@photos) {
+        if ($photo->{count_faves} < $favorite_count_threshold) {
+            print "Found $photo->{title}, only has $photo->{count_faves} faves, removing.\n";
+            push(@remove_us, $photo->{id});
+        }
+    }
+    return @remove_us ? \@remove_us : undef;
 }
 
 sub retrieve_key_info {
