@@ -132,14 +132,6 @@ sub add_photos_to_album {
 sub remove_photos_from_album {
     my $set_id = shift;
 
-    my @photos_to_remove = get_photos_below_threshold($set_id);
-    print Dumper \@photos_to_remove;
-
-}
-
-sub get_photos_below_threshold {
-    my $set_id = shift;
-
     my $user = $flickr->people->findByUsername('kevinspencer');
 
     my @photos = $user->photosetGetPhotos($set_id);
@@ -148,14 +140,12 @@ sub get_photos_below_threshold {
 
     print "Found $count $plural_word already in set, checking for under threshold of $favorite_count_threshold...\n";
 
-    my @remove_us;
     for my $photo (@photos) {
         if ($photo->{count_faves} < $favorite_count_threshold) {
-            print "Found $photo->{title}, only has $photo->{count_faves} faves, removing.\n";
-            push(@remove_us, $photo->{id});
+            print "Found $photo->{title}, only has $photo->{count_faves} faves, deleting...\n";
+            $user->removefromPhotoset($photo->{id}, $set_id);
         }
     }
-    return @remove_us ? \@remove_us : undef;
 }
 
 sub retrieve_key_info {
