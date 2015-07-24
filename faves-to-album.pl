@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 $Data::Dumper::Indent = 1;
 
 my $favorite_count_threshold;
@@ -58,7 +58,7 @@ sub main {
     my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
     my $add_count = add_photos_to_album($photos_to_move, $set_id);
     $photo_word = $add_count == 1 ? 'photo' : 'photos';
-    print "Added $add_count $photo_word photos on this run\n";
+    print "Added $add_count $photo_word on this run\n";
     print "Cleaning up...\n";
     remove_photos_from_album($set_id);
 }
