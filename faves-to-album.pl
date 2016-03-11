@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2014-2015 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2014-2016 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -22,14 +22,19 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
+
 $Data::Dumper::Indent = 1;
 
-my $favorite_count_threshold;
-GetOptions("count=i" => \$favorite_count_threshold);
+my ($favorite_count_threshold, $flickr_username);
+GetOptions("count=i" => \$favorite_count_threshold, "user=s" => \$flickr_username);
 if (! $favorite_count_threshold) {
     print "Count not passed in, defaulting to 10...\n";
     $favorite_count_threshold = 10;
+}
+
+if (! $flickr_username) {
+    die "Need to pass in username.  Usage: ./faves-to-album.pl --user kevinspencer\n";
 }
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
@@ -66,7 +71,7 @@ sub main {
 sub find_or_create_set {
     my ($count, $photo_id) = @_;
 
-    my $user = $flickr->people->findByUsername('kevinspencer');
+    my $user = $flickr->people->findByUsername($flickr_username);
     my @sets = $user->photosetGetList();
 
     my $set_title = "$count faves or more";
@@ -85,7 +90,7 @@ sub find_or_create_set {
 }
 
 sub get_photos_above_threshold {
-    my $user   = $flickr->people->findByUsername('kevinspencer');
+    my $user   = $flickr->people->findByUsername($flickr_username);
     my $info   = $user->getInfo();
 
     my $total_photos = $info->{photos}{count}{_content};
@@ -111,7 +116,7 @@ sub get_photos_above_threshold {
 sub add_photos_to_album {
     my ($photos, $set_id) = @_;
 
-    my $user =$flickr->people->findByUsername('kevinspencer');
+    my $user =$flickr->people->findByUsername($flickr_username);
 
     my $count = 0;
     for my $photo_id (keys(%$photos)) {
@@ -132,7 +137,7 @@ sub add_photos_to_album {
 sub remove_photos_from_album {
     my $set_id = shift;
 
-    my $user = $flickr->people->findByUsername('kevinspencer');
+    my $user = $flickr->people->findByUsername($flickr_username);
 
     my @photos = $user->photosetGetPhotos($set_id);
     my $count  = @photos ? @photos : 0;
