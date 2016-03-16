@@ -86,6 +86,7 @@ sub find_or_create_set {
 
     # no set found so we'll create it...
     my $id = $user->photosetCreate(primary_photo_id => $photo_id, title => $set_title);
+    print "$set_title did not exist, created it.\n";
     return $id;
 }
 
@@ -145,12 +146,15 @@ sub remove_photos_from_album {
 
     print "Found $count $plural_word already in set, checking for under threshold of $favorite_count_threshold...\n";
 
+    my $did_removal = 0;
     for my $photo (@photos) {
         if ($photo->{count_faves} < $favorite_count_threshold) {
             print "Found $photo->{title}, only has $photo->{count_faves} faves, deleting...\n";
             $user->removefromPhotoset($photo->{id}, $set_id);
+            $did_removal = 1;
         }
     }
+    print "No photos found to remove under threshold of $favorite_count_threshold...\n" if (! $did_removal);
 }
 
 sub retrieve_key_info {
@@ -164,6 +168,8 @@ sub retrieve_key_info {
         chomp($auth_token);
         close($fh);
         return ($api_key, $api_secret, $auth_token);
+    } else {
+        die "Hmm, looks like $api_key_file doesn't exist, cannot continue.\n";
     }
     return;
 }
