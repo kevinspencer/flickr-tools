@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2014-2016 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2014-2017 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 $Data::Dumper::Indent = 1;
 
@@ -120,13 +120,23 @@ sub add_photos_to_album {
     my $user =$flickr->people->findByUsername($flickr_username);
 
     my $count = 0;
+    PHOTOLOOP:
     for my $photo_id (keys(%$photos)) {
-        eval {
-            $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
-        };
-        if ($@) {
-            die $@ if ($@ !~ /Photo already in set/);
-            next;
+        RETRYLOOP:
+        for my $current_attempt_count (1..3) {
+            eval {
+                $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
+            };
+            if ($@) {
+                next PHOTOLOOP if ($@ =~ /Photo already in set/);
+                # if the Flickr API returns with a 5xx, retry if we can...
+                if ($current_attempt_count > 3) {
+                    die $@;
+                }
+                next RETRYLOOP if ($@ =~ /API call failed with HTTP status: 5/);
+                # if we're here it's not an error we know how to deal with so just bail...
+                die $@;
+            }
         }
         $count++;
         print "Added $photos->{$photo_id}{title}...\n";
