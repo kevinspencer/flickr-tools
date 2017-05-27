@@ -130,7 +130,7 @@ sub add_photos_to_album {
             if ($@) {
                 next PHOTOLOOP if ($@ =~ /Photo already in set/);
                 # if the Flickr API returns with a 5xx, retry if we can...
-                if ($current_attempt_count > 3) {
+                if ($current_attempt_count == 3) {
                     die $@;
                 }
                 next RETRYLOOP if ($@ =~ /API call failed with HTTP status: 5/);
