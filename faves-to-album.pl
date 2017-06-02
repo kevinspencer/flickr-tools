@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.12';
+our $VERSION = '0.13';
 
 $Data::Dumper::Indent = 1;
 
@@ -60,11 +60,15 @@ sub main {
     # and create it if we don't.  we need to pass in a primary_photo_id if creating...
     my @photo_id_keys   = keys(%$photos_to_move);
     my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
-    my $set_id = find_or_create_set($favorite_count_threshold, $random_photo_id);
+    my $set_id          = find_or_create_set($favorite_count_threshold, $random_photo_id);
+
     my $add_count = add_photos_to_album($photos_to_move, $set_id);
-    $photo_word = $add_count == 1 ? 'photo' : 'photos';
+
+    $photo_word   = $add_count == 1 ? 'photo' : 'photos';
+
     print "Added $add_count $photo_word on this run\n";
     print "Cleaning up...\n";
+
     remove_photos_from_album($set_id);
 }
 
@@ -77,6 +81,8 @@ sub find_or_create_set {
     my $set_title = "$count faves or more";
     my $set_id;
     for my $set (@sets) {
+        print Dumper $set;
+        exit();
         if ($set->{title} eq $set_title) {
             $set_id = $set->{id};
             last;
@@ -115,13 +121,24 @@ sub get_photos_above_threshold {
 }
 
 sub add_photos_to_album {
-    my ($photos, $set_id) = @_;
+    my ($photos_to_add, $set_id) = @_;
 
-    my $user =$flickr->people->findByUsername($flickr_username);
+    my $user = $flickr->people->findByUsername($flickr_username);
+
+    # weed out those photos already in set...
+    my @photos_in_set = $user->photosetGetPhotos($set_id);
+    for my $photo_in_set (@photos_in_set) {
+        if ($photos_to_add->{$photo_in_set->{id}}) {
+            delete $photos_to_add->{$photo_in_set->{id}};
+        }
+    }
+
+    my $what_is_left = keys(%$photos_to_add);
+    print "Found $what_is_left not already in the set\n";
 
     my $count = 0;
     PHOTOLOOP:
-    for my $photo_id (keys(%$photos)) {
+    for my $photo_id (keys(%$photos_to_add)) {
         RETRYLOOP:
         for my $current_attempt_count (1..3) {
             eval {
@@ -139,7 +156,7 @@ sub add_photos_to_album {
             }
         }
         $count++;
-        print "Added $photos->{$photo_id}{title}...\n";
+        print "Added $photos_to_add->{$photo_id}{title}...\n";
     }
     
     return $count;
