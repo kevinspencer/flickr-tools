@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.14';
+our $VERSION = '0.15';
 
 $Data::Dumper::Indent = 1;
 
@@ -181,6 +181,7 @@ sub add_photos_to_album {
                 # if we're here it's not an error we know how to deal with so just bail...
                 die $@;
             }
+            last RETRYLOOP;
         }
         $count++;
         print "Added $photos_to_add->{$photo_id}{title}...\n";
