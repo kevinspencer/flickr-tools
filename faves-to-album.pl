@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 $Data::Dumper::Indent = 1;
 
@@ -81,8 +81,6 @@ sub find_or_create_set {
     my $set_title = "$count faves or more";
     my $set_id;
     for my $set (@sets) {
-        print Dumper $set;
-        exit();
         if ($set->{title} eq $set_title) {
             $set_id = $set->{id};
             last;
@@ -120,16 +118,45 @@ sub get_photos_above_threshold {
     return %photos_to_move ? \%photos_to_move : undef;
 }
 
+# FIXME: duplication of code here from get_photos_above_threshold(), refactor
+
+sub get_photos_from_set {
+    my $set_id = shift;
+
+    my $user = $flickr->people->findByUsername($flickr_username);
+
+    # how many photos are in this set already?
+    my $count = $user->photosetGetPhotoCount($set_id);
+
+    # flickr.photosets.getPhotos can handle 500 photos per 'page' request...
+    my $photos_per_page = $count >= 500 ? 500 : $count;
+    my $pages_needed    = ceil($count / $photos_per_page);
+    my $current_counter = $photos_per_page;
+
+    my %photos_in_set;
+    for my $current_page_count (1..$pages_needed) {
+        my @photos = $user->photosetGetPhotos($set_id, (per_page => $photos_per_page, page => $current_page_count));
+        for my $photo (@photos) {
+            if ($photo->{count_faves} >= $favorite_count_threshold) {
+                $photos_in_set{$photo->{id}}{count} = $photo->{count_faves};
+                $photos_in_set{$photo->{id}}{title} = $photo->{title};
+            }
+        }
+    }
+    return %photos_in_set ? \%photos_in_set : undef;
+}
+
 sub add_photos_to_album {
     my ($photos_to_add, $set_id) = @_;
 
     my $user = $flickr->people->findByUsername($flickr_username);
 
+
     # weed out those photos already in set...
-    my @photos_in_set = $user->photosetGetPhotos($set_id);
-    for my $photo_in_set (@photos_in_set) {
-        if ($photos_to_add->{$photo_in_set->{id}}) {
-            delete $photos_to_add->{$photo_in_set->{id}};
+    my $photos_in_set = get_photos_from_set($set_id);
+    for my $photo_in_set (keys(%$photos_in_set)) {
+        if ($photos_to_add->{$photo_in_set}) {
+            delete $photos_to_add->{$photo_in_set};
         }
     }
 
