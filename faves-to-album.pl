@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.16';
+our $VERSION = '0.17';
 
 $Data::Dumper::Indent = 1;
 
@@ -205,7 +205,13 @@ sub remove_photos_from_album {
     for my $photo_id (keys(%$photos_in_set)) {
         if ($photos_in_set->{$photo_id}{count_faves} < $favorite_count_threshold) {
             print "Found $photos_in_set->{$photo_id}{title}, only has $photos_in_set->{$photo_id}{count_faves} faves, deleting...\n";
-            $user->removefromPhotoset($photo_id, $set_id);
+            eval {
+                $user->removefromPhotoset($photo_id, $set_id);
+            };
+            if ($@) {
+                print $@;
+                next;
+            }
             $did_removal = 1;
         }
     }
