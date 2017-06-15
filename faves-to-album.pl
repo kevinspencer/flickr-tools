@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.15';
+our $VERSION = '0.16';
 
 $Data::Dumper::Indent = 1;
 
@@ -151,7 +151,6 @@ sub add_photos_to_album {
 
     my $user = $flickr->people->findByUsername($flickr_username);
 
-
     # weed out those photos already in set...
     my $photos_in_set = get_photos_from_set($set_id);
     for my $photo_in_set (keys(%$photos_in_set)) {
@@ -195,17 +194,18 @@ sub remove_photos_from_album {
 
     my $user = $flickr->people->findByUsername($flickr_username);
 
-    my @photos = $user->photosetGetPhotos($set_id);
-    my $count  = @photos ? @photos : 0;
+    my $photos_in_set = get_photos_from_set($set_id);
+
+    my $count  = keys(%$photos_in_set) ? keys(%$photos_in_set) : 0;
     my $plural_word = $count == 1 ? 'photo' : 'photos';
 
     print "Found $count $plural_word already in set, checking for under threshold of $favorite_count_threshold...\n";
 
     my $did_removal = 0;
-    for my $photo (@photos) {
-        if ($photo->{count_faves} < $favorite_count_threshold) {
-            print "Found $photo->{title}, only has $photo->{count_faves} faves, deleting...\n";
-            $user->removefromPhotoset($photo->{id}, $set_id);
+    for my $photo_id (keys(%$photos_in_set)) {
+        if ($photos_in_set->{$photo_id}{count_faves} < $favorite_count_threshold) {
+            print "Found $photos_in_set->{$photo_id}{title}, only has $photos_in_set->{$photo_id}{count_faves} faves, deleting...\n";
+            $user->removefromPhotoset($photo_id, $set_id);
             $did_removal = 1;
         }
     }
