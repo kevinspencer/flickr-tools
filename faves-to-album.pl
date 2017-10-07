@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.17';
+our $VERSION = '0.18';
 
 $Data::Dumper::Indent = 1;
 
@@ -41,6 +41,9 @@ my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
 my ($api_key, $api_secret, $auth_token) = retrieve_key_info();
 
 my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret, token => $auth_token});
+
+# ensure STDOUT know about utf8...
+binmode STDOUT, ":utf8";
 
 main();
 
