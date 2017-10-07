@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.15';
+our $VERSION = '0.16';
 
 $Data::Dumper::Indent = 1;
 
@@ -159,6 +159,9 @@ sub add_photos_to_album {
             delete $photos_to_add->{$photo_in_set};
         }
     }
+
+    # let's make sure we handle unicode in our photo names...
+    binmode STDOUT, ":utf8";
 
     my $what_is_left = keys(%$photos_to_add);
     print "Found $what_is_left not already in the set\n";
