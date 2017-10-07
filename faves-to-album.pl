@@ -22,7 +22,7 @@ use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.18';
+our $VERSION = '0.19';
 
 $Data::Dumper::Indent = 1;
 
@@ -42,7 +42,7 @@ my ($api_key, $api_secret, $auth_token) = retrieve_key_info();
 
 my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret, token => $auth_token});
 
-# ensure STDOUT know about utf8...
+# ensure STDOUT knows about utf8...
 binmode STDOUT, ":utf8";
 
 main();
@@ -206,8 +206,8 @@ sub remove_photos_from_album {
 
     my $did_removal = 0;
     for my $photo_id (keys(%$photos_in_set)) {
-        if ($photos_in_set->{$photo_id}{count_faves} < $favorite_count_threshold) {
-            print "Found $photos_in_set->{$photo_id}{title}, only has $photos_in_set->{$photo_id}{count_faves} faves, deleting...\n";
+        if ($photos_in_set->{$photo_id}{count} < $favorite_count_threshold) {
+            print "Found $photos_in_set->{$photo_id}{title}, only has $photos_in_set->{$photo_id}{count} faves, deleting...\n";
             eval {
                 $user->removefromPhotoset($photo_id, $set_id);
             };
