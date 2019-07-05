@@ -15,20 +15,20 @@ use Encode::Base58;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 my $original_photo_url = shift;
 
 if (! $original_photo_url) {
-    die "Needs a photo URL\n";
+    die "Need a flickr photo URL to parse\n";
 }
 
 my $flickr_short_base_url = 'https://flic.kr/p';
 
 if ($original_photo_url =~ /(\d+)$/) {
-    my $photo_id = $1;
-    
+    my $photo_id      = $1;
     my $shortened_url = $flickr_short_base_url . '/' . encode_base58($photo_id);
-
     print $shortened_url, "\n";
+} else {
+    print "Unrecognized flickr photo URL to parse.\n";
 }
