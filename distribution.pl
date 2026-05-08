@@ -83,7 +83,12 @@ if (-f $cache_file && prompt_use_cache($cache_file)) {
         $page_photos = [$page_photos] if ref($page_photos) eq 'HASH';
 
         for my $photo (@$page_photos) {
-            push @photos, { count_faves => $photo->{count_faves}, views => $photo->{views} };
+            push @photos, {
+                id          => $photo->{id},
+                title       => $photo->{title},
+                count_faves => $photo->{count_faves},
+                views       => $photo->{views},
+            };
         }
         $total_processed += scalar(@$page_photos);
         print "Completed page $page, $total_processed photos processed...\n";

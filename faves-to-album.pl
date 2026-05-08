@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2014-2017 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2014-2026 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -11,229 +11,271 @@
 #
 ################################################################################
 
-# experimental, Flickr::API2 on the CPAN doesn't have native support for sets
-use lib '/Users/kevin/code/Flickr-API2/lib';
-use Data::Dumper;
 use File::HomeDir;
+use File::Path qw(make_path);
 use File::Spec;
-use Flickr::API2;
+use Flickr::API;
 use Getopt::Long;
+use JSON;
 use POSIX qw(ceil);
 use strict;
 use warnings;
 
-our $VERSION = '0.19';
+our $VERSION = '1.00';
 
-$Data::Dumper::Indent = 1;
+binmode(STDOUT, ':utf8');
 
 my ($favorite_count_threshold, $flickr_username);
 GetOptions("count=i" => \$favorite_count_threshold, "user=s" => \$flickr_username);
-if (! $favorite_count_threshold) {
+
+if (!$favorite_count_threshold) {
     print "Count not passed in, defaulting to 10...\n";
     $favorite_count_threshold = 10;
 }
 
-if (! $flickr_username) {
-    die "Need to pass in username.  Usage: ./faves-to-album.pl --user kevinspencer\n";
+die "Need to pass in username.  Usage: ./faves-to-album.pl --user vek\n" unless $flickr_username;
+
+my $cache_dir  = 'cache';
+my $cache_file = "$cache_dir/photos_$flickr_username.json";
+make_path($cache_dir);
+
+my $config_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.st');
+die "OAuth config not found at $config_file - run gen-auth-token.pl first.\n" unless -e $config_file;
+
+my $api = Flickr::API->import_storable_config($config_file);
+
+my $nsid = lookup_nsid($flickr_username);
+
+# Load all public photos (from cache or API)
+my @all_photos;
+if (-f $cache_file && prompt_use_cache($cache_file)) {
+    @all_photos = @{ load_cache($cache_file) };
+    print "Loaded " . scalar(@all_photos) . " photos from cache.\n";
+} else {
+    @all_photos = fetch_all_photos($nsid);
+    write_cache($cache_file, \@all_photos);
+    print "Cache written to $cache_file\n";
 }
 
-my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
-my ($api_key, $api_secret, $auth_token) = retrieve_key_info();
-
-my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret, token => $auth_token});
-
-# ensure STDOUT knows about utf8...
-binmode STDOUT, ":utf8";
-
-main();
-
-sub main {
-    my $photos_to_move = get_photos_above_threshold();
-
-    if (! $photos_to_move) {
-        print "Found no photos above threshold of $favorite_count_threshold, exiting.\n";
-        exit();
+# Find photos above threshold
+my %photos_to_move;
+for my $photo (@all_photos) {
+    if ($photo->{count_faves} >= $favorite_count_threshold) {
+        $photos_to_move{$photo->{id}}{count} = $photo->{count_faves};
+        $photos_to_move{$photo->{id}}{title} = $photo->{title};
     }
+}
 
-    my $count = keys(%$photos_to_move);
-    my $photo_word = $count == 1 ? 'photo' : 'photos';
-    print "Found $count $photo_word above threshold of $favorite_count_threshold\n";
+if (!%photos_to_move) {
+    print "Found no photos above threshold of $favorite_count_threshold, exiting.\n";
+    exit();
+}
 
-    # check to see if we already have an album on Flickr called "$favorite_count_threshold or more" 
-    # and create it if we don't.  we need to pass in a primary_photo_id if creating...
-    my @photo_id_keys   = keys(%$photos_to_move);
-    my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
-    my $set_id          = find_or_create_set($favorite_count_threshold, $random_photo_id);
+my $count      = keys(%photos_to_move);
+my $photo_word = $count == 1 ? 'photo' : 'photos';
+print "Found $count $photo_word above threshold of $favorite_count_threshold\n";
 
-    my $add_count = add_photos_to_album($photos_to_move, $set_id);
+my @photo_id_keys   = keys(%photos_to_move);
+my $random_photo_id = $photo_id_keys[rand @photo_id_keys];
+my $set_id          = find_or_create_set($favorite_count_threshold, $random_photo_id);
 
-    $photo_word   = $add_count == 1 ? 'photo' : 'photos';
+my $add_count = add_photos_to_album(\%photos_to_move, $set_id);
+$photo_word   = $add_count == 1 ? 'photo' : 'photos';
+print "Added $add_count $photo_word on this run\n";
 
-    print "Added $add_count $photo_word on this run\n";
-    print "Cleaning up...\n";
+print "Cleaning up...\n";
+remove_photos_from_album($set_id);
 
-    remove_photos_from_album($set_id);
+# --- Subs ---
+
+sub lookup_nsid {
+    my ($username) = @_;
+    my $response = $api->execute_method('flickr.urls.lookupUser', { url => "https://www.flickr.com/photos/$username/" });
+    die "Could not find user '$username': " . $response->error_message() . "\n" unless $response->success();
+    return $response->as_hash()->{user}{id};
+}
+
+sub fetch_all_photos {
+    my ($user_nsid) = @_;
+
+    my $response = $api->execute_method('flickr.people.getInfo', { user_id => $user_nsid });
+    die "Could not get user info: " . $response->error_message() . "\n" unless $response->success();
+    my $total_photos = $response->as_hash()->{person}{photos}{count};
+
+    my $photos_per_page = $total_photos >= 500 ? 500 : $total_photos;
+    my $pages_needed    = ceil($total_photos / $photos_per_page);
+    print "Fetching $total_photos photos in $pages_needed page requests...\n";
+
+    my @photos;
+    for my $page (1..$pages_needed) {
+        my $r = $api->execute_method('flickr.people.getPublicPhotos', {
+            user_id  => $user_nsid,
+            per_page => $photos_per_page,
+            page     => $page,
+            extras   => 'count_faves,views',
+        });
+        die "Could not get photos (page $page): " . $r->error_message() . "\n" unless $r->success();
+        my $data        = $r->as_hash();
+        my $page_photos = $data->{photos}{photo};
+        $page_photos    = [$page_photos] if ref($page_photos) eq 'HASH';
+        for my $photo (@$page_photos) {
+            push @photos, {
+                id          => $photo->{id},
+                title       => $photo->{title},
+                count_faves => $photo->{count_faves},
+                views       => $photo->{views},
+            };
+        }
+        print "Completed page $page, " . scalar(@photos) . " photos fetched...\n";
+    }
+    return @photos;
 }
 
 sub find_or_create_set {
-    my ($count, $photo_id) = @_;
+    my ($threshold, $primary_photo_id) = @_;
 
-    my $user = $flickr->people->findByUsername($flickr_username);
-    my @sets = $user->photosetGetList();
+    my $response = $api->execute_method('flickr.photosets.getList', { user_id => $nsid, per_page => 500 });
+    die "Could not get albums: " . $response->error_message() . "\n" unless $response->success();
+    my $sets = $response->as_hash()->{photosets}{photoset};
+    $sets = [$sets] if ref($sets) eq 'HASH';
 
-    my $set_title = "$count faves or more";
-    my $set_id;
-    for my $set (@sets) {
-        if ($set->{title} eq $set_title) {
-            $set_id = $set->{id};
-            last;
-        }
+    my $set_title = "$threshold faves or more";
+    for my $set (@$sets) {
+        return $set->{id} if $set->{title} eq $set_title;
     }
-    return $set_id if $set_id;
 
-    # no set found so we'll create it...
-    my $id = $user->photosetCreate(primary_photo_id => $photo_id, title => $set_title);
-    print "$set_title did not exist, created it.\n";
-    return $id;
+    # Create it
+    $response = $api->execute_method('flickr.photosets.create', {
+        title            => $set_title,
+        primary_photo_id => $primary_photo_id,
+    });
+    die "Could not create album '$set_title': " . $response->error_message() . "\n" unless $response->success();
+    print "'$set_title' did not exist, created it.\n";
+    return $response->as_hash()->{photoset}{id};
 }
-
-sub get_photos_above_threshold {
-    my $user   = $flickr->people->findByUsername($flickr_username);
-    my $info   = $user->getInfo();
-
-    my $total_photos = $info->{photos}{count}{_content};
-
-    # flickr.people.getPublicPhotos can handle 500 photos per 'page' request...
-    my $photos_per_page = $total_photos >= 500 ? 500 : $total_photos;
-    my $pages_needed    = ceil($total_photos / $photos_per_page);
-    my $current_counter = $photos_per_page;
-    print "Checking Flickr for photos >= count threshold of $favorite_count_threshold ($total_photos photos)...\n";
-    my %photos_to_move;
-    for my $current_page_count (1..$pages_needed) {
-        my @photos = $user->getPublicPhotos(per_page => $photos_per_page, page => $current_page_count);
-        for my $photo (@photos) {
-            if ($photo->{count_faves} >= $favorite_count_threshold) {
-                $photos_to_move{$photo->{id}}{count} = $photo->{count_faves};
-                $photos_to_move{$photo->{id}}{title} = $photo->{title};
-            }
-        }
-    }
-    return %photos_to_move ? \%photos_to_move : undef;
-}
-
-# FIXME: duplication of code here from get_photos_above_threshold(), refactor
 
 sub get_photos_from_set {
-    my $set_id = shift;
+    my ($set_id) = @_;
 
-    my $user = $flickr->people->findByUsername($flickr_username);
+    # Get total count first
+    my $response = $api->execute_method('flickr.photosets.getPhotos', {
+        photoset_id => $set_id,
+        user_id     => $nsid,
+        per_page    => 1,
+        extras      => 'count_faves',
+    });
+    die "Could not get album photos: " . $response->error_message() . "\n" unless $response->success();
+    my $total        = $response->as_hash()->{photoset}{total} // 0;
+    my $pages_needed = $total > 0 ? ceil($total / 500) : 0;
 
-    # how many photos are in this set already?
-    my $count = $user->photosetGetPhotoCount($set_id);
-
-    # flickr.photosets.getPhotos can handle 500 photos per 'page' request...
-    my $photos_per_page = $count >= 500 ? 500 : $count;
-    my $pages_needed    = ceil($count / $photos_per_page);
-    my $current_counter = $photos_per_page;
+    return {} unless $total;
 
     my %photos_in_set;
-    for my $current_page_count (1..$pages_needed) {
-        my @photos = $user->photosetGetPhotos($set_id, (per_page => $photos_per_page, page => $current_page_count));
-        for my $photo (@photos) {
-            if ($photo->{count_faves} >= $favorite_count_threshold) {
-                $photos_in_set{$photo->{id}}{count} = $photo->{count_faves};
-                $photos_in_set{$photo->{id}}{title} = $photo->{title};
-            }
+    for my $page (1..$pages_needed) {
+        $response = $api->execute_method('flickr.photosets.getPhotos', {
+            photoset_id => $set_id,
+            user_id     => $nsid,
+            per_page    => 500,
+            page        => $page,
+            extras      => 'count_faves',
+        });
+        die "Could not get album photos (page $page): " . $response->error_message() . "\n" unless $response->success();
+        my $page_photos = $response->as_hash()->{photoset}{photo};
+        $page_photos = [$page_photos] if ref($page_photos) eq 'HASH';
+        for my $photo (@$page_photos) {
+            $photos_in_set{$photo->{id}}{count} = $photo->{count_faves};
+            $photos_in_set{$photo->{id}}{title} = $photo->{title};
         }
     }
-    return %photos_in_set ? \%photos_in_set : undef;
+    return \%photos_in_set;
 }
 
 sub add_photos_to_album {
     my ($photos_to_add, $set_id) = @_;
 
-    my $user = $flickr->people->findByUsername($flickr_username);
-
-    # weed out those photos already in set...
     my $photos_in_set = get_photos_from_set($set_id);
-    for my $photo_in_set (keys(%$photos_in_set)) {
-        if ($photos_to_add->{$photo_in_set}) {
-            delete $photos_to_add->{$photo_in_set};
-        }
+
+    # Remove those already in set
+    for my $photo_id (keys(%$photos_in_set)) {
+        delete $photos_to_add->{$photo_id};
     }
 
-    my $what_is_left = keys(%$photos_to_add);
-    print "Found $what_is_left not already in the set\n";
+    my $remaining = keys(%$photos_to_add);
+    print "Found $remaining not already in the album\n";
 
     my $count = 0;
     PHOTOLOOP:
     for my $photo_id (keys(%$photos_to_add)) {
         RETRYLOOP:
-        for my $current_attempt_count (1..3) {
-            eval {
-                $user->addtoPhotoset(photo_id => $photo_id, photoset_id =>$set_id);
-            };
-            if ($@) {
-                next PHOTOLOOP if ($@ =~ /Photo already in set/);
-                # if the Flickr API returns with a 5xx, retry if we can...
-                if ($current_attempt_count == 3) {
-                    die $@;
+        for my $attempt (1..3) {
+            my $response = $api->execute_method('flickr.photosets.addPhoto', {
+                photoset_id => $set_id,
+                photo_id    => $photo_id,
+            });
+            if (!$response->success()) {
+                next PHOTOLOOP if $response->error_code() == 3; # already in set
+                if ($attempt == 3) {
+                    die "Failed to add photo $photo_id: " . $response->error_message() . "\n";
                 }
-                next RETRYLOOP if ($@ =~ /API call failed with HTTP status: 5/);
-                # if we're here it's not an error we know how to deal with so just bail...
-                die $@;
+                next RETRYLOOP if $response->rc() =~ /^5/;
+                die "Failed to add photo $photo_id: " . $response->error_message() . "\n";
             }
             last RETRYLOOP;
         }
         $count++;
         print "Added $photos_to_add->{$photo_id}{title}...\n";
     }
-    
     return $count;
 }
 
 sub remove_photos_from_album {
-    my $set_id = shift;
-
-    my $user = $flickr->people->findByUsername($flickr_username);
+    my ($set_id) = @_;
 
     my $photos_in_set = get_photos_from_set($set_id);
+    my $count         = scalar(keys(%$photos_in_set));
+    my $plural_word   = $count == 1 ? 'photo' : 'photos';
 
-    my $count  = keys(%$photos_in_set) ? keys(%$photos_in_set) : 0;
-    my $plural_word = $count == 1 ? 'photo' : 'photos';
-
-    print "Found $count $plural_word already in set, checking for under threshold of $favorite_count_threshold...\n";
+    print "Found $count $plural_word in album, checking for any under threshold of $favorite_count_threshold...\n";
 
     my $did_removal = 0;
     for my $photo_id (keys(%$photos_in_set)) {
-        if ($photos_in_set->{$photo_id}{count} < $favorite_count_threshold) {
-            print "Found $photos_in_set->{$photo_id}{title}, only has $photos_in_set->{$photo_id}{count} faves, deleting...\n";
-            eval {
-                $user->removefromPhotoset($photo_id, $set_id);
-            };
-            if ($@) {
-                print $@;
+        my $faves = $photos_in_set->{$photo_id}{count};
+        if ($faves < $favorite_count_threshold) {
+            print "Removing $photos_in_set->{$photo_id}{title} ($faves faves)...\n";
+            my $response = $api->execute_method('flickr.photosets.removePhoto', {
+                photoset_id => $set_id,
+                photo_id    => $photo_id,
+            });
+            if (!$response->success()) {
+                print "Warning: could not remove photo $photo_id: " . $response->error_message() . "\n";
                 next;
             }
             $did_removal = 1;
         }
     }
-    print "No photos found to remove under threshold of $favorite_count_threshold...\n" if (! $did_removal);
+    print "No photos found to remove under threshold of $favorite_count_threshold\n" unless $did_removal;
 }
 
-sub retrieve_key_info {
-    if (-e $api_key_file) {
-        open(my $fh, '<', $api_key_file) || die "Could not read $api_key_file - $!\n";
-        my $api_key = <$fh>;
-        chomp($api_key);
-        my $api_secret = <$fh>;
-        chomp($api_secret);
-        my $auth_token = <$fh>;
-        chomp($auth_token);
-        close($fh);
-        return ($api_key, $api_secret, $auth_token);
-    } else {
-        die "Hmm, looks like $api_key_file doesn't exist, cannot continue.\n";
-    }
-    return;
+sub prompt_use_cache {
+    my ($file) = @_;
+    my $age     = time() - (stat($file))[9];
+    my $age_str = $age < 3600 ? int($age / 60) . ' minutes' : int($age / 3600) . ' hours';
+    print "Cache exists (age: $age_str). Use cached data? [y/n] ";
+    chomp(my $answer = <STDIN>);
+    return lc($answer) eq 'y';
+}
+
+sub load_cache {
+    my ($file) = @_;
+    open(my $fh, '<', $file) or die "Cannot read cache $file: $!\n";
+    my $json = do { local $/; <$fh> };
+    close($fh);
+    return decode_json($json);
+}
+
+sub write_cache {
+    my ($file, $data) = @_;
+    open(my $fh, '>', $file) or die "Cannot write cache $file: $!\n";
+    print $fh encode_json($data);
+    close($fh);
 }
