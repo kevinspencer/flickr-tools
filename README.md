@@ -7,3 +7,4 @@ Some kit I find handy for interacting with Flickr.
 - gen-auth-token.pl
 - list-albums.pl
 - make-short-url.pl
+- thanks.pl
