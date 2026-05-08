@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Copyright 2014 Kevin Spencer <kevin@kevinspencer.org>
+# Copyright 2014-2026 Kevin Spencer <kevin@kevinspencer.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -11,45 +11,59 @@
 #
 ################################################################################
 
-# experimental, Flickr::API2 on the CPAN doesn't quite implement auth...
-use lib '/Users/kevin/code/Flickr-API2/lib';
 use File::HomeDir;
 use File::Spec;
-use Flickr::API2;
-use IO::Prompt;
+use Flickr::API;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '1.00';
 
 my $api_key_file = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.key');
-my ($api_key, $api_secret) = retrieve_key_info();
+my $config_file  = File::Spec->catfile(File::HomeDir->my_home(), '.flickr.st');
 
-my $flickr = Flickr::API2->new({'key' => $api_key, secret => $api_secret});
+my ($consumer_key, $consumer_secret) = retrieve_key_info();
 
-my $response = $flickr->execute_method('flickr.auth.getFrob');
-my $frob     = $response->{frob}{_content};
-my $user     = $flickr->people->findByUsername('kevinspencer');
-my $url      = $user->getAuthURL('write', $frob);
+my $api = Flickr::API->new({
+    consumer_key    => $consumer_key,
+    consumer_secret => $consumer_secret,
+    callback        => 'https://127.0.0.1/',
+});
 
-print "Visit the following URL to authorize access:\n$url\n";
+my $rt_rc = $api->oauth_request_token({ callback => 'https://127.0.0.1/' });
+die "Failed to get request token\n" if $rt_rc ne 'ok';
 
-my $ok_to_continue = prompt("Once done, hit enter to continue: ");
+my $uri = $api->oauth_authorize_uri({ perms => 'write' });
 
-$response = $flickr->execute_method('flickr.auth.getToken', { frob => $frob });
-my $token = $response->{token}{_content};
+print "\nVisit the following URL to authorize access:\n\n$uri\n\n";
+print "Copy the redirect URL from your browser's address bar and paste it here:\n";
 
-print "Auth token is: $token\n";
+my $redirect_url = <STDIN>;
+chomp($redirect_url);
+
+my ($base, $query) = split(/\?/, $redirect_url);
+die "Couldn't parse the redirect URL, please try again.\n" unless $query;
+
+my %request_token;
+for my $pair (split(/&/, $query)) {
+    my ($key, $val) = split(/=/, $pair, 2);
+    $key =~ s/^oauth_//;
+    $request_token{$key} = $val;
+}
+
+die "Couldn't find oauth_verifier in the URL.\n" unless $request_token{verifier};
+
+my $ac_rc = $api->oauth_access_token(\%request_token);
+die "Failed to get access token\n" if $ac_rc ne 'ok';
+
+$api->export_storable_config($config_file);
+print "\nSuccess! OAuth config saved to $config_file\n";
+print "You can now run the other flickr-tools scripts.\n";
 
 sub retrieve_key_info {
-    if (-e $api_key_file) {
-        open(my $fh, '<', $api_key_file) || die "Could not read $api_key_file - $!\n";
-        my $api_key = <$fh>;
-        chomp($api_key);
-        my $api_secret = <$fh>;
-        chomp($api_secret);
-        close($fh);
-        return ($api_key, $api_secret);
-    }
-    return;
+    open(my $fh, '<', $api_key_file) || die "Could not read $api_key_file: $!\nCreate it with your API key on line 1 and secret on line 2.\n";
+    my $key    = <$fh>; chomp($key);
+    my $secret = <$fh>; chomp($secret);
+    close($fh);
+    return ($key, $secret);
 }
